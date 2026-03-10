@@ -1,0 +1,129 @@
+@page "/entities/new"
+@page "/entities/{Id}"
+@using BlazorHybrid.App.Data.Models
+@using BlazorHybrid.App.Data.Repositories
+@using BlazorHybrid.App.Services.Auth
+@using BlazorHybrid.App.Services.Sync
+@using System.Text.Json
+@inject IEntityRepository EntityRepo
+@inject ISyncService SyncService
+@inject IAuthService AuthService
+@inject NavigationManager Nav
+
+<h2>@(IsNew ? "New Entity" : "Edit Entity")</h2>
+
+<EditForm Model="entity" OnValidSubmit="SaveAsync">
+    <DataAnnotationsValidator />
+
+    <div class="mb-3">
+        <label class="form-label">Name</label>
+        <InputText class="form-control" @bind-Value="entity.Name" />
+    </div>
+
+    <div class="mb-3">
+        <label class="form-label">Type</label>
+        <InputText class="form-control" @bind-Value="entity.EntityType" />
+    </div>
+
+    <div class="mb-3">
+        <label class="form-label">Description</label>
+        <InputTextArea class="form-control" rows="3" @bind-Value="entity.Description" />
+    </div>
+
+    <h4>Custom Fields</h4>
+    @foreach (var field in formFields)
+    {
+        <div class="mb-2 row">
+            <div class="col-5">
+                <input class="form-control" placeholder="Field name" value="@field.Key"
+                       @onchange="e => UpdateFieldKey(field.Key, e.Value?.ToString() ?? string.Empty)" />
+            </div>
+            <div class="col-5">
+                <input class="form-control" placeholder="Value" value="@field.Value"
+                       @onchange="e => formFields[field.Key] = e.Value?.ToString() ?? string.Empty" />
+            </div>
+            <div class="col-2">
+                <button type="button" class="btn btn-outline-danger" @onclick="() => formFields.Remove(field.Key)">✕</button>
+            </div>
+        </div>
+    }
+    <button type="button" class="btn btn-sm btn-outline-secondary mb-3" @onclick="AddField">+ Add Field</button>
+
+    <div class="d-flex gap-2">
+        <button type="submit" class="btn btn-primary">@(IsNew ? "Create" : "Save")</button>
+        <button type="button" class="btn btn-outline-secondary" @onclick="GoBack">Cancel</button>
+        @if (!IsNew)
+        {
+            <button type="button" class="btn btn-outline-danger ms-auto" @onclick="DeleteAsync">Delete</button>
+        }
+    </div>
+</EditForm>
+
+@code {
+    [Parameter] public string? Id { get; set; }
+
+    private EntityRecord entity = new();
+    private Dictionary<string, string> formFields = new();
+    private bool IsNew => string.IsNullOrEmpty(Id) || Id == "new";
+    private int fieldCounter;
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (!IsNew)
+        {
+            var existing = await EntityRepo.GetByIdAsync(Id!);
+            if (existing is not null)
+            {
+                entity = existing;
+                formFields = JsonSerializer.Deserialize<Dictionary<string, string>>(entity.FormFieldsJson) ?? new();
+            }
+        }
+    }
+
+    private void GoBack() => Nav.NavigateTo("entities");
+
+    private void AddField()
+    {
+        fieldCounter++;
+        formFields[$"field_{fieldCounter}"] = string.Empty;
+    }
+
+    private void UpdateFieldKey(string oldKey, string newKey)
+    {
+        if (string.IsNullOrWhiteSpace(newKey) || oldKey == newKey) return;
+        if (formFields.ContainsKey(oldKey))
+        {
+            var value = formFields[oldKey];
+            formFields.Remove(oldKey);
+            formFields[newKey] = value;
+        }
+    }
+
+    private async Task SaveAsync()
+    {
+        entity.FormFieldsJson = JsonSerializer.Serialize(formFields);
+        entity.CaseWorkerId = AuthService.UserId ?? "local";
+
+        if (IsNew)
+        {
+            await EntityRepo.InsertAsync(entity);
+            await SyncService.EnqueueAsync("Create", "Entity", entity.Id,
+                JsonSerializer.Serialize(entity));
+        }
+        else
+        {
+            await EntityRepo.UpdateAsync(entity);
+            await SyncService.EnqueueAsync("Update", "Entity", entity.Id,
+                JsonSerializer.Serialize(entity));
+        }
+
+        Nav.NavigateTo("entities");
+    }
+
+    private async Task DeleteAsync()
+    {
+        await EntityRepo.DeleteAsync(entity.Id);
+        await SyncService.EnqueueAsync("Delete", "Entity", entity.Id, null);
+        Nav.NavigateTo("entities");
+    }
+}

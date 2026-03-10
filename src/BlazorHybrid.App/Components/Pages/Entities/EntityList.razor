@@ -1,0 +1,52 @@
+@page "/entities"
+@using BlazorHybrid.App.Data.Models
+@using BlazorHybrid.App.Data.Repositories
+@using BlazorHybrid.App.Services.Sync
+@inject IEntityRepository EntityRepo
+@inject ISyncService SyncService
+@inject NavigationManager Nav
+
+<h2>Entities</h2>
+
+<button class="btn btn-primary mb-3" @onclick="CreateNew">+ New Entity</button>
+
+@if (entities is null)
+{
+    <p>Loading...</p>
+}
+else if (entities.Count == 0)
+{
+    <div class="alert alert-info">No entities yet. Create your first entity.</div>
+}
+else
+{
+    <div class="list-group">
+        @foreach (var entity in entities)
+        {
+            <a href="entities/@entity.Id" class="list-group-item list-group-item-action">
+                <div class="d-flex w-100 justify-content-between">
+                    <h5 class="mb-1">@entity.Name</h5>
+                    <small class="text-muted">
+                        @(entity.IsSynced ? "✅ Synced" : "⏳ Pending sync")
+                    </small>
+                </div>
+                <p class="mb-1">@entity.Description</p>
+                <small class="text-muted">@entity.EntityType · Updated @entity.UpdatedAt.LocalDateTime.ToString("g")</small>
+            </a>
+        }
+    </div>
+}
+
+@code {
+    private List<EntityRecord>? entities;
+
+    protected override async Task OnInitializedAsync()
+    {
+        entities = await EntityRepo.GetAllAsync();
+    }
+
+    private void CreateNew()
+    {
+        Nav.NavigateTo("entities/new");
+    }
+}

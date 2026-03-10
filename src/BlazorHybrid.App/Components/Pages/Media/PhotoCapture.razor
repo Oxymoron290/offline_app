@@ -1,0 +1,102 @@
+@page "/photos"
+@page "/photos/{EntityId}"
+@using BlazorHybrid.App.Data.Models
+@using BlazorHybrid.App.Data.Repositories
+@using BlazorHybrid.App.Services.Media
+@using BlazorHybrid.App.Services.Sync
+@using System.Text.Json
+@inject IMediaRepository MediaRepo
+@inject IMediaService MediaService
+@inject ISyncService SyncService
+
+<h2>Photos</h2>
+
+<button class="btn btn-primary mb-3" @onclick="CapturePhotoAsync">📷 Take Photo</button>
+
+@if (photos is null)
+{
+    <p>Loading...</p>
+}
+else if (photos.Count == 0)
+{
+    <div class="alert alert-info">No photos captured.</div>
+}
+else
+{
+    <div class="row">
+        @foreach (var photo in photos)
+        {
+            <div class="col-md-4 mb-3">
+                <div class="card">
+                    @if (File.Exists(photo.LocalFilePath))
+                    {
+                        <img src="@photo.LocalFilePath" class="card-img-top" alt="@photo.Caption" style="max-height: 200px; object-fit: cover;" />
+                    }
+                    <div class="card-body">
+                        <p class="card-text">@(photo.Caption ?? photo.FileName)</p>
+                        <small class="text-muted">
+                            @photo.CapturedAt.LocalDateTime.ToString("g")
+                            @(photo.IsSynced ? "✅" : "⏳")
+                        </small>
+                    </div>
+                </div>
+            </div>
+        }
+    </div>
+}
+
+@code {
+    [Parameter] public string? EntityId { get; set; }
+
+    private List<PhotoRecord>? photos;
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (!string.IsNullOrEmpty(EntityId))
+        {
+            photos = await MediaRepo.GetPhotosByEntityIdAsync(EntityId);
+        }
+        else
+        {
+            photos = new();
+        }
+    }
+
+    private async Task CapturePhotoAsync()
+    {
+        var filePath = await MediaService.CapturePhotoAsync();
+        if (filePath is null) return;
+
+        var fileInfo = new FileInfo(filePath);
+        var record = new PhotoRecord
+        {
+            EntityId = EntityId ?? "unassigned",
+            FileName = fileInfo.Name,
+            FileSizeBytes = fileInfo.Length,
+            LocalFilePath = filePath,
+            CapturedAt = DateTimeOffset.UtcNow
+        };
+
+        // Try to get location
+        try
+        {
+            var location = await Geolocation.Default.GetLocationAsync(new GeolocationRequest(GeolocationAccuracy.Medium, TimeSpan.FromSeconds(10)));
+            if (location is not null)
+            {
+                record.Latitude = location.Latitude;
+                record.Longitude = location.Longitude;
+            }
+        }
+        catch
+        {
+            // Location not available
+        }
+
+        await MediaRepo.InsertPhotoAsync(record);
+        await SyncService.EnqueueAsync("Create", "Photo", record.Id,
+            JsonSerializer.Serialize(record), filePath);
+
+        photos = await MediaRepo.GetPhotosByEntityIdAsync(EntityId ?? "unassigned");
+        StateHasChanged();
+    }
+}

@@ -1,0 +1,103 @@
+@page "/documents"
+@page "/documents/{EntityId}"
+@using BlazorHybrid.App.Data.Models
+@using BlazorHybrid.App.Data.Repositories
+@using BlazorHybrid.App.Services.Media
+@using BlazorHybrid.App.Services.Sync
+@using System.Text.Json
+@inject IMediaRepository MediaRepo
+@inject IMediaService MediaService
+@inject ISyncService SyncService
+
+<h2>Documents</h2>
+
+<button class="btn btn-primary mb-3" @onclick="PickDocumentAsync">📎 Attach Document</button>
+
+@if (documents is null)
+{
+    <p>Loading...</p>
+}
+else if (documents.Count == 0)
+{
+    <div class="alert alert-info">No documents attached.</div>
+}
+else
+{
+    <table class="table">
+        <thead>
+            <tr>
+                <th>File Name</th>
+                <th>Size</th>
+                <th>Notes</th>
+                <th>Synced</th>
+                <th>Date</th>
+            </tr>
+        </thead>
+        <tbody>
+            @foreach (var doc in documents)
+            {
+                <tr>
+                    <td>@doc.FileName</td>
+                    <td>@FormatSize(doc.FileSizeBytes)</td>
+                    <td>@(doc.Notes ?? "—")</td>
+                    <td>@(doc.IsSynced ? "✅" : "⏳")</td>
+                    <td>@doc.CreatedAt.LocalDateTime.ToString("g")</td>
+                </tr>
+            }
+        </tbody>
+    </table>
+}
+
+@code {
+    [Parameter] public string? EntityId { get; set; }
+
+    private List<DocumentRecord>? documents;
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (!string.IsNullOrEmpty(EntityId))
+        {
+            documents = await MediaRepo.GetDocumentsByEntityIdAsync(EntityId);
+        }
+        else
+        {
+            documents = new();
+        }
+    }
+
+    private async Task PickDocumentAsync()
+    {
+        var filePath = await MediaService.PickDocumentAsync();
+        if (filePath is null) return;
+
+        var fileInfo = new FileInfo(filePath);
+        var record = new DocumentRecord
+        {
+            EntityId = EntityId ?? "unassigned",
+            FileName = fileInfo.Name,
+            ContentType = "application/octet-stream",
+            FileSizeBytes = fileInfo.Length,
+            LocalFilePath = filePath
+        };
+
+        await MediaRepo.InsertDocumentAsync(record);
+        await SyncService.EnqueueAsync("Create", "Document", record.Id,
+            JsonSerializer.Serialize(record), filePath);
+
+        documents = await MediaRepo.GetDocumentsByEntityIdAsync(EntityId ?? "unassigned");
+        StateHasChanged();
+    }
+
+    private static string FormatSize(long bytes)
+    {
+        string[] sizes = ["B", "KB", "MB", "GB"];
+        int order = 0;
+        double size = bytes;
+        while (size >= 1024 && order < sizes.Length - 1)
+        {
+            order++;
+            size /= 1024;
+        }
+        return $"{size:0.#} {sizes[order]}";
+    }
+}

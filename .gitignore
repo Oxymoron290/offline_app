@@ -1,0 +1,37 @@
+## .NET
+*.swp
+*.*~
+project.lock.json
+.DS_Store
+*.pyc
+nupkg/
+*.user
+*.suo
+*.userprefs
+**/[Bb]in/
+**/[Oo]bj/
+**/[Dd]ebug/
+**/[Rr]elease/
+**/[Pp]ackages/
+**/.vs/
+**/.vscode/
+**/.idea/
+TestResults/
+*.nupkg
+*.snupkg
+
+## Azure Functions
+local.settings.json
+.python_packages/
+
+## MAUI
+*.ipa
+*.apk
+*.aab
+
+## Bicep
+*.json.bak
+
+## OS
+Thumbs.db
+.DS_Store

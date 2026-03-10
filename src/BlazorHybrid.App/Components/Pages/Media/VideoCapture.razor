@@ -1,0 +1,103 @@
+@page "/videos"
+@page "/videos/{EntityId}"
+@using BlazorHybrid.App.Data.Models
+@using BlazorHybrid.App.Data.Repositories
+@using BlazorHybrid.App.Services.Media
+@using BlazorHybrid.App.Services.Sync
+@using System.Text.Json
+@inject IMediaRepository MediaRepo
+@inject IMediaService MediaService
+@inject ISyncService SyncService
+
+<h2>Videos</h2>
+
+<button class="btn btn-primary mb-3" @onclick="CaptureVideoAsync">🎥 Record Video</button>
+
+@if (videos is null)
+{
+    <p>Loading...</p>
+}
+else if (videos.Count == 0)
+{
+    <div class="alert alert-info">No videos recorded.</div>
+}
+else
+{
+    <table class="table">
+        <thead>
+            <tr>
+                <th>File Name</th>
+                <th>Size</th>
+                <th>Caption</th>
+                <th>Synced</th>
+                <th>Captured</th>
+            </tr>
+        </thead>
+        <tbody>
+            @foreach (var video in videos)
+            {
+                <tr>
+                    <td>@video.FileName</td>
+                    <td>@FormatSize(video.FileSizeBytes)</td>
+                    <td>@(video.Caption ?? "—")</td>
+                    <td>@(video.IsSynced ? "✅" : "⏳")</td>
+                    <td>@video.CapturedAt.LocalDateTime.ToString("g")</td>
+                </tr>
+            }
+        </tbody>
+    </table>
+}
+
+@code {
+    [Parameter] public string? EntityId { get; set; }
+
+    private List<VideoRecord>? videos;
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (!string.IsNullOrEmpty(EntityId))
+        {
+            videos = await MediaRepo.GetVideosByEntityIdAsync(EntityId);
+        }
+        else
+        {
+            videos = new();
+        }
+    }
+
+    private async Task CaptureVideoAsync()
+    {
+        var filePath = await MediaService.CaptureVideoAsync();
+        if (filePath is null) return;
+
+        var fileInfo = new FileInfo(filePath);
+        var record = new VideoRecord
+        {
+            EntityId = EntityId ?? "unassigned",
+            FileName = fileInfo.Name,
+            FileSizeBytes = fileInfo.Length,
+            LocalFilePath = filePath,
+            CapturedAt = DateTimeOffset.UtcNow
+        };
+
+        await MediaRepo.InsertVideoAsync(record);
+        await SyncService.EnqueueAsync("Create", "Video", record.Id,
+            JsonSerializer.Serialize(record), filePath);
+
+        videos = await MediaRepo.GetVideosByEntityIdAsync(EntityId ?? "unassigned");
+        StateHasChanged();
+    }
+
+    private static string FormatSize(long bytes)
+    {
+        string[] sizes = ["B", "KB", "MB", "GB"];
+        int order = 0;
+        double size = bytes;
+        while (size >= 1024 && order < sizes.Length - 1)
+        {
+            order++;
+            size /= 1024;
+        }
+        return $"{size:0.#} {sizes[order]}";
+    }
+}

@@ -1,0 +1,134 @@
+@page "/sync"
+@using BlazorHybrid.App.Data.Models
+@using BlazorHybrid.App.Data.Repositories
+@using BlazorHybrid.App.Services.Connectivity
+@using BlazorHybrid.App.Services.Sync
+@inject ISyncService SyncService
+@inject ISyncOperationRepository SyncRepo
+@inject IConnectivityService Connectivity
+@implements IDisposable
+
+<h2>Sync Status</h2>
+
+<div class="row mb-3">
+    <div class="col-md-4">
+        <div class="card">
+            <div class="card-body text-center">
+                <h6>Connectivity</h6>
+                <span class="badge @(Connectivity.IsConnected ? "bg-success" : "bg-danger") fs-5">
+                    @(Connectivity.IsConnected ? "Online" : "Offline")
+                </span>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-4">
+        <div class="card">
+            <div class="card-body text-center">
+                <h6>Pending Operations</h6>
+                <p class="display-6">@pendingCount</p>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-4">
+        <div class="card">
+            <div class="card-body text-center">
+                <h6>Failed Operations</h6>
+                <p class="display-6 text-danger">@failedCount</p>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="mb-3">
+    <button class="btn btn-primary" @onclick="SyncNowAsync" disabled="@isSyncing">
+        @(isSyncing ? "Syncing..." : "Sync Now")
+    </button>
+</div>
+
+@if (operations is not null && operations.Count > 0)
+{
+    <h4>Queue</h4>
+    <table class="table table-sm">
+        <thead>
+            <tr>
+                <th>Type</th>
+                <th>Entity</th>
+                <th>Status</th>
+                <th>Retries</th>
+                <th>Created</th>
+                <th>Error</th>
+            </tr>
+        </thead>
+        <tbody>
+            @foreach (var op in operations)
+            {
+                <tr class="@(op.Status == "Failed" ? "table-danger" : "")">
+                    <td>@op.OperationType</td>
+                    <td>@op.EntityType</td>
+                    <td>
+                        <span class="badge @GetStatusBadge(op.Status)">@op.Status</span>
+                    </td>
+                    <td>@op.RetryCount</td>
+                    <td>@op.CreatedAt.LocalDateTime.ToString("g")</td>
+                    <td><small>@(op.LastError ?? "—")</small></td>
+                </tr>
+            }
+        </tbody>
+    </table>
+}
+
+@code {
+    private int pendingCount;
+    private int failedCount;
+    private bool isSyncing;
+    private List<SyncOperation>? operations;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await RefreshAsync();
+        SyncService.SyncProgressChanged += OnSyncProgress;
+    }
+
+    private async Task RefreshAsync()
+    {
+        pendingCount = await SyncService.GetPendingCountAsync();
+        failedCount = await SyncService.GetFailedCountAsync();
+        operations = await SyncRepo.GetPendingAsync(100);
+    }
+
+    private async Task SyncNowAsync()
+    {
+        isSyncing = true;
+        StateHasChanged();
+
+        await SyncService.ProcessQueueAsync();
+
+        isSyncing = false;
+        await RefreshAsync();
+        StateHasChanged();
+    }
+
+    private async void OnSyncProgress(object? sender, SyncProgressEventArgs e)
+    {
+        await InvokeAsync(async () =>
+        {
+            isSyncing = e.IsSyncing;
+            await RefreshAsync();
+            StateHasChanged();
+        });
+    }
+
+    private static string GetStatusBadge(string status) => status switch
+    {
+        "Pending" => "bg-warning text-dark",
+        "InProgress" => "bg-info",
+        "Completed" => "bg-success",
+        "Failed" => "bg-danger",
+        _ => "bg-secondary"
+    };
+
+    public void Dispose()
+    {
+        SyncService.SyncProgressChanged -= OnSyncProgress;
+    }
+}
