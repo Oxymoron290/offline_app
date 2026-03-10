@@ -346,7 +346,7 @@
     // ── Expose API on window ─────────────────────────────────────────────
 
     window.indexedDb = {
-        initDatabase,
+        initialize: initDatabase,
         addEntity,
         getEntity,
         getAllEntities,

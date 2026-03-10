@@ -19,15 +19,6 @@ builder.Services.AddScoped<IConnectivityService, ConnectivityService>();
 builder.Services.AddScoped<ISyncService, SyncService>();
 builder.Services.AddScoped<BlobCacheService>();
 
-// MSAL authentication for Microsoft Entra ID
-builder.Services.AddMsalAuthentication(options =>
-{
-    builder.Configuration.Bind("AzureAd", options.ProviderOptions.Authentication);
-    options.ProviderOptions.DefaultAccessTokenScopes.Add(
-        builder.Configuration["AzureAd:DefaultScope"] ?? "api://blazorwasm-pwa/access_as_user");
-    options.ProviderOptions.LoginMode = "redirect";
-});
-
 var host = builder.Build();
 
 // Initialize IndexedDB on startup

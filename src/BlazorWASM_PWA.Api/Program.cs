@@ -6,17 +6,9 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
-using Microsoft.Identity.Web;
-
 var builder = FunctionsApplication.CreateBuilder(args);
 
 builder.ConfigureFunctionsWebApplication();
-
-// Microsoft Entra ID (Azure AD) authentication
-builder.Services.AddAuthentication()
-    .AddMicrosoftIdentityWebApi(builder.Configuration.GetSection("AzureAd"));
-
-builder.Services.AddAuthorization();
 
 // EF Core with SQL Server
 builder.Services.AddDbContext<AppDbContext>(options =>
