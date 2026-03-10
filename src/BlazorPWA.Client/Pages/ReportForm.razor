@@ -1,0 +1,232 @@
+@page "/reports/new"
+@page "/reports/{ReportId:guid}"
+@using BlazorPWA.Client.Services
+@using BlazorPWA.Shared.Models
+@using BlazorPWA.Shared.Enums
+
+<PageTitle>@(_isEdit ? "Edit" : "New") Inspection Report</PageTitle>
+
+<div class="container-fluid px-4">
+    <h2 class="mb-4">
+        <i class="bi bi-pencil-square"></i> @(_isEdit ? "Edit" : "New") Inspection Report
+    </h2>
+
+    <EditForm Model="_report" OnValidSubmit="HandleSubmit" FormName="ReportForm">
+        <DataAnnotationsValidator />
+
+        <div class="row mb-3">
+            <div class="col-md-6">
+                <label class="form-label">Title *</label>
+                <InputText @bind-Value="_report.Title" class="form-control" placeholder="Inspection title" />
+            </div>
+            <div class="col-md-6">
+                <label class="form-label">Status</label>
+                <InputSelect @bind-Value="_report.Status" class="form-select">
+                    <option value="Draft">Draft</option>
+                    <option value="In Progress">In Progress</option>
+                    <option value="Completed">Completed</option>
+                </InputSelect>
+            </div>
+        </div>
+
+        <div class="row mb-3">
+            <div class="col-md-6">
+                <label class="form-label">Facility Name</label>
+                <InputText @bind-Value="_report.FacilityName" class="form-control" placeholder="Facility name" />
+            </div>
+            <div class="col-md-6">
+                <label class="form-label">Facility Address</label>
+                <InputText @bind-Value="_report.FacilityAddress" class="form-control" placeholder="Address" />
+            </div>
+        </div>
+
+        <div class="row mb-3">
+            <div class="col-md-6">
+                <label class="form-label">Inspector Name</label>
+                <InputText @bind-Value="_report.InspectorName" class="form-control" placeholder="Your name" />
+            </div>
+            <div class="col-md-6">
+                <label class="form-label">Inspector ID</label>
+                <InputText @bind-Value="_report.InspectorId" class="form-control" placeholder="Employee ID" />
+            </div>
+        </div>
+
+        <div class="mb-3">
+            <label class="form-label">Description</label>
+            <InputTextArea @bind-Value="_report.Description" class="form-control" rows="3" placeholder="Describe the inspection..." />
+        </div>
+
+        <div class="mb-3">
+            <label class="form-label">Notes</label>
+            <InputTextArea @bind-Value="_report.Notes" class="form-control" rows="3" placeholder="Additional notes..." />
+        </div>
+
+        @if (_isEdit)
+        {
+            <div class="mb-4">
+                <h4>Attachments</h4>
+                <InputFile OnChange="HandleFileUpload" multiple class="form-control mb-2" accept="image/*,video/*,.pdf,.doc,.docx" />
+                <small class="text-muted">Photos (max 10MB), Videos (max 100MB), Documents (max 25MB)</small>
+
+                @if (_attachments.Any())
+                {
+                    <ul class="list-group mt-2">
+                        @foreach (var att in _attachments)
+                        {
+                            <li class="list-group-item d-flex justify-content-between align-items-center">
+                                <span><i class="bi @GetMediaIcon(att.MediaType)"></i> @att.FileName</span>
+                                <span class="badge bg-info">@FormatFileSize(att.FileSize)</span>
+                            </li>
+                        }
+                    </ul>
+                }
+            </div>
+        }
+
+        <div class="d-flex gap-2">
+            <button type="submit" class="btn btn-primary" disabled="@_saving">
+                @if (_saving)
+                {
+                    <span class="spinner-border spinner-border-sm" role="status"></span>
+                    <span> Saving...</span>
+                }
+                else
+                {
+                    <i class="bi bi-check-lg"></i>
+                    <span> @(_isEdit ? "Update" : "Create") Report</span>
+                }
+            </button>
+            <a href="/reports" class="btn btn-outline-secondary">Cancel</a>
+        </div>
+    </EditForm>
+
+    @if (!string.IsNullOrEmpty(_message))
+    {
+        <div class="alert @(_isError ? "alert-danger" : "alert-success") mt-3" role="alert">
+            @_message
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter] public Guid? ReportId { get; set; }
+    [Inject] private IndexedDbService IndexedDb { get; set; } = default!;
+    [Inject] private SyncQueueService SyncQueue { get; set; } = default!;
+    [Inject] private NavigationManager Navigation { get; set; } = default!;
+
+    private InspectionReport _report = new();
+    private List<MediaAttachment> _attachments = new();
+    private bool _isEdit, _saving, _isError;
+    private string _message = string.Empty;
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (ReportId.HasValue)
+        {
+            _isEdit = true;
+            var existing = await IndexedDb.GetEntityAsync<InspectionReport>(ReportId.Value.ToString());
+            if (existing is not null)
+                _report = existing;
+        }
+    }
+
+    private async Task HandleSubmit()
+    {
+        _saving = true;
+        _message = string.Empty;
+
+        try
+        {
+            if (!_isEdit)
+                _report.Id = Guid.NewGuid();
+
+            _report.UpdatedAt = DateTime.UtcNow;
+
+            // Save to IndexedDB
+            await IndexedDb.PutEntityAsync(
+                _report.Id.ToString(),
+                "InspectionReport",
+                _report,
+                "Pending");
+
+            // Queue sync operation
+            var opType = _isEdit ? OperationType.UpdateReport : OperationType.CreateReport;
+            await SyncQueue.EnqueueOperationAsync(
+                opType,
+                _report.Id.ToString(),
+                "InspectionReport",
+                _report,
+                _report.Version);
+
+            _message = _isEdit ? "Report updated! Queued for sync." : "Report created! Queued for sync.";
+
+            if (!_isEdit)
+            {
+                await Task.Delay(1000);
+                Navigation.NavigateTo($"/reports/{_report.Id}");
+            }
+        }
+        catch (Exception ex)
+        {
+            _isError = true;
+            _message = $"Error: {ex.Message}";
+        }
+        finally
+        {
+            _saving = false;
+        }
+    }
+
+    private async Task HandleFileUpload(InputFileChangeEventArgs e)
+    {
+        foreach (var file in e.GetMultipleFiles(10))
+        {
+            var attachment = new MediaAttachment
+            {
+                ReportId = _report.Id,
+                FileName = file.Name,
+                ContentType = file.ContentType,
+                MediaType = GetMediaType(file.ContentType),
+                FileSize = file.Size
+            };
+            _attachments.Add(attachment);
+
+            // Store blob in IndexedDB for later sync
+            using var stream = file.OpenReadStream(maxAllowedSize: 100 * 1024 * 1024);
+            using var ms = new MemoryStream();
+            await stream.CopyToAsync(ms);
+            var base64 = Convert.ToBase64String(ms.ToArray());
+
+            await IndexedDb.PutMediaBlobAsync(new
+            {
+                id = attachment.Id.ToString(),
+                reportId = _report.Id.ToString(),
+                fileName = file.Name,
+                contentType = file.ContentType,
+                blob = base64,
+                syncStatus = "Pending"
+            });
+        }
+    }
+
+    private MediaType GetMediaType(string contentType)
+    {
+        if (contentType.StartsWith("image/")) return MediaType.Photo;
+        if (contentType.StartsWith("video/")) return MediaType.Video;
+        return MediaType.Document;
+    }
+
+    private string GetMediaIcon(MediaType type) => type switch
+    {
+        MediaType.Photo => "bi-image",
+        MediaType.Video => "bi-camera-video",
+        _ => "bi-file-earmark"
+    };
+
+    private string FormatFileSize(long bytes)
+    {
+        if (bytes < 1024) return $"{bytes} B";
+        if (bytes < 1024 * 1024) return $"{bytes / 1024.0:F1} KB";
+        return $"{bytes / (1024.0 * 1024.0):F1} MB";
+    }
+}

@@ -1,0 +1,137 @@
+@page "/"
+@using BlazorPWA.Client.Services
+
+<PageTitle>BlazorPWA - Field Service</PageTitle>
+
+<div class="container-fluid px-4">
+    <div class="row mb-4">
+        <div class="col-12">
+            <h1 class="display-6">
+                <i class="bi bi-clipboard-check"></i> Field Inspection Dashboard
+            </h1>
+        </div>
+    </div>
+
+    <div class="row mb-4">
+        <div class="col-md-3">
+            <div class="card text-bg-primary">
+                <div class="card-body">
+                    <h5 class="card-title">Total Reports</h5>
+                    <p class="card-text display-6">@_totalReports</p>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card text-bg-warning">
+                <div class="card-body">
+                    <h5 class="card-title">Pending Sync</h5>
+                    <p class="card-text display-6">@_pendingSync</p>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card text-bg-success">
+                <div class="card-body">
+                    <h5 class="card-title">Completed</h5>
+                    <p class="card-text display-6">@_completed</p>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card text-bg-info">
+                <div class="card-body">
+                    <h5 class="card-title">In Draft</h5>
+                    <p class="card-text display-6">@_drafts</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row">
+        <div class="col-12">
+            <div class="d-flex justify-content-between align-items-center mb-3">
+                <h3>Recent Reports</h3>
+                <a href="/reports/new" class="btn btn-primary">
+                    <i class="bi bi-plus-lg"></i> New Inspection
+                </a>
+            </div>
+        </div>
+    </div>
+
+    @if (_recentReports.Any())
+    {
+        <div class="row">
+            @foreach (var report in _recentReports)
+            {
+                <div class="col-md-6 col-lg-4 mb-3">
+                    <div class="card h-100">
+                        <div class="card-body">
+                            <h5 class="card-title">@report.Title</h5>
+                            <h6 class="card-subtitle mb-2 text-muted">@report.FacilityName</h6>
+                            <p class="card-text">@report.Description</p>
+                            <div class="d-flex justify-content-between align-items-center">
+                                <span class="badge @GetStatusBadgeClass(report.Status)">@report.Status</span>
+                                <span class="badge @GetSyncBadgeClass(report.SyncStatus)">
+                                    @GetSyncStatusIcon(report.SyncStatus) @report.SyncStatus
+                                </span>
+                            </div>
+                        </div>
+                        <div class="card-footer text-muted">
+                            <small>Updated @report.UpdatedAt.ToString("g")</small>
+                            <a href="/reports/@report.Id" class="btn btn-sm btn-outline-primary float-end">View</a>
+                        </div>
+                    </div>
+                </div>
+            }
+        </div>
+    }
+    else
+    {
+        <div class="alert alert-info">
+            <i class="bi bi-info-circle"></i> No inspection reports yet. Click "New Inspection" to get started.
+        </div>
+    }
+</div>
+
+@code {
+    [Inject] private IndexedDbService IndexedDb { get; set; } = default!;
+    [Inject] private SyncQueueService SyncQueue { get; set; } = default!;
+
+    private List<BlazorPWA.Shared.Models.InspectionReport> _recentReports = new();
+    private int _totalReports, _pendingSync, _completed, _drafts;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _recentReports = await IndexedDb.GetAllEntitiesAsync<BlazorPWA.Shared.Models.InspectionReport>("InspectionReport");
+        _totalReports = _recentReports.Count;
+        _pendingSync = SyncQueue.PendingCount;
+        _completed = _recentReports.Count(r => r.Status == "Completed");
+        _drafts = _recentReports.Count(r => r.Status == "Draft");
+    }
+
+    private string GetStatusBadgeClass(string status) => status switch
+    {
+        "Draft" => "bg-secondary",
+        "In Progress" => "bg-primary",
+        "Completed" => "bg-success",
+        _ => "bg-secondary"
+    };
+
+    private string GetSyncBadgeClass(BlazorPWA.Shared.Enums.SyncStatus status) => status switch
+    {
+        BlazorPWA.Shared.Enums.SyncStatus.Completed => "bg-success",
+        BlazorPWA.Shared.Enums.SyncStatus.Pending => "bg-warning text-dark",
+        BlazorPWA.Shared.Enums.SyncStatus.Failed => "bg-danger",
+        BlazorPWA.Shared.Enums.SyncStatus.Conflict => "bg-warning",
+        _ => "bg-secondary"
+    };
+
+    private string GetSyncStatusIcon(BlazorPWA.Shared.Enums.SyncStatus status) => status switch
+    {
+        BlazorPWA.Shared.Enums.SyncStatus.Completed => "✓",
+        BlazorPWA.Shared.Enums.SyncStatus.Pending => "⟳",
+        BlazorPWA.Shared.Enums.SyncStatus.Failed => "✗",
+        BlazorPWA.Shared.Enums.SyncStatus.Conflict => "⚠",
+        _ => ""
+    };
+}

@@ -1,0 +1,46 @@
+﻿@inherits LayoutComponentBase
+@using BlazorPWA.Client.Services
+
+<div class="page">
+    <div class="sidebar">
+        <NavMenu />
+    </div>
+
+    <main>
+        <div class="top-row px-4">
+            <div class="d-flex align-items-center gap-3">
+                @if (_connectivity is not null)
+                {
+                    <span class="badge @(_connectivity.IsOnline ? "bg-success" : "bg-danger")">
+                        @(_connectivity.IsOnline ? "Online" : "Offline")
+                    </span>
+
+                    @if (_syncQueue is not null && _syncQueue.PendingCount > 0)
+                    {
+                        <a href="/sync" class="badge bg-warning text-dark text-decoration-none">
+                            ⟳ @_syncQueue.PendingCount pending
+                        </a>
+                    }
+                }
+            </div>
+            <a href="https://learn.microsoft.com/aspnet/core/" target="_blank">About</a>
+        </div>
+
+        <article class="content px-4">
+            @Body
+        </article>
+    </main>
+</div>
+
+@code {
+    [Inject] private ConnectivityService? _connectivity { get; set; }
+    [Inject] private SyncQueueService? _syncQueue { get; set; }
+
+    protected override void OnInitialized()
+    {
+        if (_connectivity is not null)
+            _connectivity.OnConnectivityChanged += (_) => InvokeAsync(StateHasChanged);
+        if (_syncQueue is not null)
+            _syncQueue.OnSyncStatusChanged += () => InvokeAsync(StateHasChanged);
+    }
+}

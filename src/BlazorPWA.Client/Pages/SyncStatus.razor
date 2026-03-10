@@ -1,0 +1,87 @@
+@page "/sync"
+@using BlazorPWA.Client.Services
+
+<PageTitle>Sync Status</PageTitle>
+
+<div class="container-fluid px-4">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h2><i class="bi bi-arrow-repeat"></i> Sync Status</h2>
+        <div>
+            <span class="badge @(_connectivity.IsOnline ? "bg-success" : "bg-danger") me-2 fs-6">
+                @(_connectivity.IsOnline ? "🟢 Online" : "🔴 Offline")
+            </span>
+            <button class="btn btn-primary" @onclick="ManualSync" disabled="@(!_connectivity.IsOnline || _syncQueue.IsSyncing)">
+                @if (_syncQueue.IsSyncing)
+                {
+                    <span class="spinner-border spinner-border-sm"></span>
+                    <span> Syncing...</span>
+                }
+                else
+                {
+                    <i class="bi bi-cloud-upload"></i>
+                    <span> Sync Now</span>
+                }
+            </button>
+        </div>
+    </div>
+
+    <div class="row mb-4">
+        <div class="col-md-4">
+            <div class="card">
+                <div class="card-body text-center">
+                    <h5 class="card-title text-warning">Pending</h5>
+                    <p class="display-4">@_syncQueue.PendingCount</p>
+                    <small class="text-muted">operations waiting to sync</small>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-4">
+            <div class="card">
+                <div class="card-body text-center">
+                    <h5 class="card-title text-info">Connection</h5>
+                    <p class="display-4">@(_connectivity.IsOnline ? "✓" : "✗")</p>
+                    <small class="text-muted">@(_connectivity.IsOnline ? "Connected to server" : "Working offline")</small>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-4">
+            <div class="card">
+                <div class="card-body text-center">
+                    <h5 class="card-title text-success">Last Sync</h5>
+                    <p class="display-6">@(_lastSync ?? "Never")</p>
+                    <small class="text-muted">last successful sync</small>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    @if (!_connectivity.IsOnline)
+    {
+        <div class="alert alert-warning">
+            <i class="bi bi-wifi-off"></i> <strong>You are currently offline.</strong>
+            All changes are saved locally and will sync automatically when connectivity is restored.
+        </div>
+    }
+</div>
+
+@code {
+    [Inject] private SyncQueueService _syncQueue { get; set; } = default!;
+    [Inject] private ConnectivityService _connectivity { get; set; } = default!;
+    [Inject] private IndexedDbService _indexedDb { get; set; } = default!;
+
+    private string? _lastSync;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _syncQueue.OnSyncStatusChanged += StateHasChanged;
+        _connectivity.OnConnectivityChanged += (_) => InvokeAsync(StateHasChanged);
+        _lastSync = await _indexedDb.GetConfigAsync("lastSyncTime");
+    }
+
+    private async Task ManualSync()
+    {
+        await _syncQueue.TrySyncAsync();
+        _lastSync = DateTime.UtcNow.ToString("g");
+        await _indexedDb.SetConfigAsync("lastSyncTime", _lastSync);
+    }
+}

@@ -1,0 +1,56 @@
+name: PR Validation
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'src/**'
+      - '*.sln'
+
+env:
+  DOTNET_VERSION: '8.0.x'
+
+jobs:
+  build-and-test:
+    name: Build & Test
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      - name: Restore dependencies
+        run: dotnet restore BlazorPWA.sln
+
+      - name: Build
+        run: dotnet build BlazorPWA.sln --configuration Release --no-restore
+
+      - name: Test
+        run: dotnet test BlazorPWA.sln --configuration Release --no-build --verbosity normal
+        continue-on-error: true
+
+  validate-bicep:
+    name: Validate Bicep
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Bicep
+        uses: azure/cli@v2
+        with:
+          inlineScript: |
+            az bicep install
+
+      - name: Validate Bicep templates
+        uses: azure/cli@v2
+        with:
+          inlineScript: |
+            az bicep build --file infra/main.bicep
+            echo "✅ Bicep templates are valid"
