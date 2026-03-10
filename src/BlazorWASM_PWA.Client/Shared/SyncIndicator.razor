@@ -1,0 +1,57 @@
+@inject ISyncService SyncService
+@implements IDisposable
+
+<div class="sync-indicator">
+    @if (SyncService.IsSyncing)
+    {
+        <span class="badge bg-info">
+            <span class="spinner-border spinner-border-sm" role="status"></span>
+            Syncing...
+        </span>
+    }
+    else if (pendingCount > 0)
+    {
+        <button class="btn btn-sm btn-outline-warning" @onclick="SyncNow">
+            ⏳ @pendingCount pending
+        </button>
+    }
+    else
+    {
+        <span class="badge bg-secondary">✓ Synced</span>
+    }
+</div>
+
+@code {
+    private int pendingCount;
+    private bool isSyncing;
+
+    protected override async Task OnInitializedAsync()
+    {
+        pendingCount = await SyncService.GetPendingCountAsync();
+        SyncService.OnPendingCountChanged += HandlePendingCountChanged;
+        SyncService.OnSyncStatusChanged += HandleSyncStatusChanged;
+    }
+
+    private void HandlePendingCountChanged(int count)
+    {
+        pendingCount = count;
+        InvokeAsync(StateHasChanged);
+    }
+
+    private void HandleSyncStatusChanged(bool syncing)
+    {
+        isSyncing = syncing;
+        InvokeAsync(StateHasChanged);
+    }
+
+    private async Task SyncNow()
+    {
+        await SyncService.SyncNowAsync();
+    }
+
+    public void Dispose()
+    {
+        SyncService.OnPendingCountChanged -= HandlePendingCountChanged;
+        SyncService.OnSyncStatusChanged -= HandleSyncStatusChanged;
+    }
+}

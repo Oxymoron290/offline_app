@@ -1,0 +1,34 @@
+@inject IConnectivityService ConnectivityService
+@implements IDisposable
+
+<div class="connectivity-banner @(isOnline ? "online" : "offline")">
+    @if (isOnline)
+    {
+        <span class="badge bg-success">🟢 Online</span>
+    }
+    else
+    {
+        <span class="badge bg-danger">🔴 Offline — changes saved locally</span>
+    }
+</div>
+
+@code {
+    private bool isOnline = true;
+
+    protected override void OnInitialized()
+    {
+        isOnline = ConnectivityService.IsOnline;
+        ConnectivityService.OnConnectivityChanged += HandleConnectivityChanged;
+    }
+
+    private void HandleConnectivityChanged(bool online)
+    {
+        isOnline = online;
+        InvokeAsync(StateHasChanged);
+    }
+
+    public void Dispose()
+    {
+        ConnectivityService.OnConnectivityChanged -= HandleConnectivityChanged;
+    }
+}

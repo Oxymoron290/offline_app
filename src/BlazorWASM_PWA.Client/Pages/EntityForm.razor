@@ -1,0 +1,148 @@
+@page "/entity/new"
+@page "/entity/{Id}"
+
+@inject IIndexedDbService IndexedDb
+@inject ISyncService SyncService
+@inject NavigationManager Navigation
+
+<h2>@(isNew ? "New Record" : "Edit Record")</h2>
+
+<EditForm Model="entity" OnValidSubmit="SaveEntity" FormName="entityForm">
+    <DataAnnotationsValidator />
+    <ValidationSummary />
+
+    <div class="mb-3">
+        <label class="form-label">Entity Type</label>
+        <select class="form-select" @bind="entity.EntityType">
+            <option value="">Select type...</option>
+            <option value="Property">Property</option>
+            <option value="Inspection">Inspection</option>
+            <option value="Violation">Violation</option>
+            <option value="Contact">Contact</option>
+        </select>
+    </div>
+
+    <div class="mb-3">
+        <label class="form-label">Name</label>
+        <InputText class="form-control" @bind-Value="entity.Name" placeholder="Enter name..." />
+    </div>
+
+    <div class="mb-3">
+        <label class="form-label">Description</label>
+        <InputTextArea class="form-control" @bind-Value="entity.Description" rows="3" placeholder="Enter description..." />
+    </div>
+
+    <div class="mb-3">
+        <label class="form-label">Additional Data (JSON)</label>
+        <InputTextArea class="form-control font-monospace" @bind-Value="entity.JsonData" rows="5" />
+    </div>
+
+    <div class="d-flex gap-2">
+        <button type="submit" class="btn btn-primary" disabled="@isSaving">
+            @(isSaving ? "Saving..." : "Save Locally")
+        </button>
+        <a href="entities" class="btn btn-outline-secondary">Cancel</a>
+    </div>
+
+    @if (saveMessage is not null)
+    {
+        <div class="alert alert-success mt-3">@saveMessage</div>
+    }
+</EditForm>
+
+@if (!isNew)
+{
+    <hr />
+    <h4>Attachments</h4>
+    <div class="d-flex gap-2 mb-3">
+        <a href="photos?entityId=@Id" class="btn btn-outline-primary">📷 Add Photo</a>
+        <a href="documents?entityId=@Id" class="btn btn-outline-primary">📄 Add Document</a>
+    </div>
+
+    @if (blobs.Any())
+    {
+        <ul class="list-group">
+            @foreach (var blob in blobs)
+            {
+                <li class="list-group-item d-flex justify-content-between align-items-center">
+                    <span>@blob.FileName <small class="text-muted">(@blob.BlobType, @FormatSize(blob.SizeBytes))</small></span>
+                    <span class="badge @(blob.IsSynced ? "bg-success" : "bg-warning")">
+                        @(blob.IsSynced ? "Synced" : "Pending")
+                    </span>
+                </li>
+            }
+        </ul>
+    }
+}
+
+@code {
+    [Parameter] public string? Id { get; set; }
+
+    private EntityRecord entity = new();
+    private List<BlobReference> blobs = [];
+    private bool isNew => string.IsNullOrEmpty(Id) || Id == "new";
+    private bool isSaving;
+    private string? saveMessage;
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (!isNew)
+        {
+            var existing = await IndexedDb.GetEntityAsync(Id!);
+            if (existing is not null)
+            {
+                entity = existing;
+                blobs = await IndexedDb.GetBlobsByEntityAsync(Id!);
+            }
+        }
+    }
+
+    private async Task SaveEntity()
+    {
+        isSaving = true;
+        saveMessage = null;
+
+        entity.UpdatedAt = DateTimeOffset.UtcNow;
+
+        if (isNew)
+        {
+            entity.CreatedAt = DateTimeOffset.UtcNow;
+            await IndexedDb.AddEntityAsync(entity);
+
+            await SyncService.QueueOperationAsync(new OfflineOperation
+            {
+                OperationType = OperationType.CreateEntity,
+                EntityType = entity.EntityType,
+                EntityId = entity.Id,
+                PayloadJson = System.Text.Json.JsonSerializer.Serialize(entity)
+            });
+        }
+        else
+        {
+            await IndexedDb.UpdateEntityAsync(entity);
+
+            await SyncService.QueueOperationAsync(new OfflineOperation
+            {
+                OperationType = OperationType.UpdateEntity,
+                EntityType = entity.EntityType,
+                EntityId = entity.Id,
+                PayloadJson = System.Text.Json.JsonSerializer.Serialize(entity)
+            });
+        }
+
+        isSaving = false;
+        saveMessage = "Saved locally! Will sync when online.";
+
+        if (isNew)
+        {
+            Navigation.NavigateTo($"entity/{entity.Id}");
+        }
+    }
+
+    private string FormatSize(long bytes)
+    {
+        if (bytes < 1024) return $"{bytes} B";
+        if (bytes < 1024 * 1024) return $"{bytes / 1024.0:F1} KB";
+        return $"{bytes / (1024.0 * 1024.0):F1} MB";
+    }
+}

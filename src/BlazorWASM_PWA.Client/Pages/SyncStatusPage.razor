@@ -1,0 +1,164 @@
+@page "/sync-status"
+
+@inject ISyncService SyncService
+@inject IIndexedDbService IndexedDb
+@inject IConnectivityService Connectivity
+@implements IDisposable
+
+<h2>Sync Status</h2>
+
+<div class="row mb-4">
+    <div class="col-md-4">
+        <div class="card">
+            <div class="card-body text-center">
+                <h6 class="card-title">Connection</h6>
+                <p class="display-6">@(Connectivity.IsOnline ? "🟢" : "🔴")</p>
+                <p>@(Connectivity.IsOnline ? "Online" : "Offline")</p>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-4">
+        <div class="card">
+            <div class="card-body text-center">
+                <h6 class="card-title">Pending</h6>
+                <p class="display-6">@pendingCount</p>
+                <p>operations queued</p>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-4">
+        <div class="card">
+            <div class="card-body text-center">
+                <h6 class="card-title">Failed</h6>
+                <p class="display-6 text-danger">@failedCount</p>
+                <p>operations failed</p>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="d-flex gap-2 mb-4">
+    <button class="btn btn-primary" @onclick="SyncNow"
+            disabled="@(!Connectivity.IsOnline || SyncService.IsSyncing)">
+        @(SyncService.IsSyncing ? "Syncing..." : "🔄 Sync Now")
+    </button>
+    <button class="btn btn-outline-secondary" @onclick="LoadOperations">
+        ↻ Refresh
+    </button>
+    <button class="btn btn-outline-danger" @onclick="ClearCompleted">
+        🗑 Clear Completed
+    </button>
+</div>
+
+@if (syncResult is not null)
+{
+    <div class="alert @(syncResult.Value ? "alert-success" : "alert-warning") mb-3">
+        @(syncResult.Value ? "✅ Sync completed successfully!" : "⚠️ Some operations failed. Check the queue below.")
+    </div>
+}
+
+<h4>Operation Queue</h4>
+
+@if (operations is null)
+{
+    <p>Loading...</p>
+}
+else if (!operations.Any())
+{
+    <div class="alert alert-info">No pending operations. Everything is synced!</div>
+}
+else
+{
+    <div class="table-responsive">
+        <table class="table table-sm">
+            <thead>
+                <tr>
+                    <th>Operation</th>
+                    <th>Entity</th>
+                    <th>Created</th>
+                    <th>Status</th>
+                    <th>Retries</th>
+                    <th>Error</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var op in operations)
+                {
+                    <tr class="@GetRowClass(op.Status)">
+                        <td><span class="badge bg-primary">@op.OperationType</span></td>
+                        <td><small>@op.EntityType / @op.EntityId[..Math.Min(8, op.EntityId.Length)]...</small></td>
+                        <td><small>@op.CreatedAt.LocalDateTime.ToString("g")</small></td>
+                        <td>
+                            <span class="badge @GetStatusBadge(op.Status)">@op.Status</span>
+                        </td>
+                        <td>@op.RetryCount</td>
+                        <td><small class="text-danger">@op.LastError</small></td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+}
+
+@code {
+    private List<OfflineOperation>? operations;
+    private int pendingCount;
+    private int failedCount;
+    private bool? syncResult;
+
+    protected override async Task OnInitializedAsync()
+    {
+        SyncService.OnPendingCountChanged += HandleCountChanged;
+        await LoadOperations();
+    }
+
+    private async Task LoadOperations()
+    {
+        operations = await IndexedDb.GetPendingOperationsAsync();
+        pendingCount = operations.Count(o => o.Status == SyncStatus.Pending);
+        failedCount = operations.Count(o => o.Status == SyncStatus.Failed);
+    }
+
+    private async Task SyncNow()
+    {
+        syncResult = null;
+        syncResult = await SyncService.SyncNowAsync();
+        await LoadOperations();
+    }
+
+    private async Task ClearCompleted()
+    {
+        await IndexedDb.ClearCompletedOperationsAsync();
+        await LoadOperations();
+    }
+
+    private void HandleCountChanged(int count)
+    {
+        InvokeAsync(async () =>
+        {
+            await LoadOperations();
+            StateHasChanged();
+        });
+    }
+
+    private string GetStatusBadge(SyncStatus status) => status switch
+    {
+        SyncStatus.Pending => "bg-warning",
+        SyncStatus.InProgress => "bg-info",
+        SyncStatus.Completed => "bg-success",
+        SyncStatus.Failed => "bg-danger",
+        _ => "bg-secondary"
+    };
+
+    private string GetRowClass(SyncStatus status) => status switch
+    {
+        SyncStatus.Failed => "table-danger",
+        SyncStatus.Completed => "table-success",
+        _ => ""
+    };
+
+    public void Dispose()
+    {
+        SyncService.OnPendingCountChanged -= HandleCountChanged;
+    }
+}

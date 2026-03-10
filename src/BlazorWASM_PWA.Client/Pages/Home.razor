@@ -1,0 +1,77 @@
+﻿@page "/"
+
+@inject IIndexedDbService IndexedDb
+@inject ISyncService SyncService
+@inject IConnectivityService Connectivity
+
+<h1>Case Worker Dashboard</h1>
+
+<div class="row mt-4">
+    <div class="col-md-4">
+        <div class="card">
+            <div class="card-body">
+                <h5 class="card-title">📋 Entities</h5>
+                <p class="card-text display-6">@entityCount</p>
+                <a href="entities" class="btn btn-primary">View All</a>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-4">
+        <div class="card">
+            <div class="card-body">
+                <h5 class="card-title">⏳ Pending Sync</h5>
+                <p class="card-text display-6">@pendingCount</p>
+                <a href="sync-status" class="btn btn-warning">View Queue</a>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-4">
+        <div class="card">
+            <div class="card-body">
+                <h5 class="card-title">📡 Status</h5>
+                <p class="card-text display-6">
+                    @(Connectivity.IsOnline ? "🟢 Online" : "🔴 Offline")
+                </p>
+                @if (Connectivity.IsOnline && pendingCount > 0)
+                {
+                    <button class="btn btn-success" @onclick="SyncNow" disabled="@isSyncing">
+                        @(isSyncing ? "Syncing..." : "Sync Now")
+                    </button>
+                }
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row mt-4">
+    <div class="col-12">
+        <h4>Quick Actions</h4>
+        <div class="d-flex gap-2 flex-wrap">
+            <a href="entity/new" class="btn btn-outline-primary btn-lg">➕ New Record</a>
+            <a href="photos" class="btn btn-outline-primary btn-lg">📷 Capture Photo</a>
+            <a href="documents" class="btn btn-outline-primary btn-lg">📄 Upload Document</a>
+        </div>
+    </div>
+</div>
+
+@code {
+    private int entityCount;
+    private int pendingCount;
+    private bool isSyncing;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var entities = await IndexedDb.GetAllEntitiesAsync();
+        entityCount = entities.Count;
+        pendingCount = await SyncService.GetPendingCountAsync();
+    }
+
+    private async Task SyncNow()
+    {
+        isSyncing = true;
+        StateHasChanged();
+        await SyncService.SyncNowAsync();
+        pendingCount = await SyncService.GetPendingCountAsync();
+        isSyncing = false;
+    }
+}

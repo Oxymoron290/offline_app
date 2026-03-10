@@ -1,0 +1,144 @@
+@page "/photos"
+
+@inject IIndexedDbService IndexedDb
+@inject ISyncService SyncService
+@inject BlobCacheService BlobCache
+@inject IJSRuntime JS
+
+<h2>📷 Photo Capture</h2>
+
+@if (!string.IsNullOrEmpty(entityId))
+{
+    <div class="alert alert-info">Adding photos to entity: @entityId</div>
+}
+
+<div class="mb-3">
+    <label class="form-label">Select or Capture Photo</label>
+    <InputFile OnChange="HandlePhotoSelected" accept="image/*" capture="environment" class="form-control" multiple />
+    <small class="text-muted">You can select multiple photos or use your camera.</small>
+</div>
+
+@if (isUploading)
+{
+    <div class="progress mb-3">
+        <div class="progress-bar progress-bar-striped progress-bar-animated" style="width: @uploadProgress%">
+            @uploadProgress%
+        </div>
+    </div>
+}
+
+@if (uploadMessage is not null)
+{
+    <div class="alert alert-success">@uploadMessage</div>
+}
+
+<h4 class="mt-4">Cached Photos</h4>
+
+@if (cachedPhotos.Any())
+{
+    <div class="row row-cols-2 row-cols-md-3 g-3">
+        @foreach (var photo in cachedPhotos)
+        {
+            <div class="col">
+                <div class="card">
+                    @if (photo.Data is not null)
+                    {
+                        <img src="data:@photo.ContentType;base64,@Convert.ToBase64String(photo.Data)"
+                             class="card-img-top" alt="@photo.FileName"
+                             style="max-height: 200px; object-fit: cover;" />
+                    }
+                    <div class="card-body p-2">
+                        <small class="text-truncate d-block">@photo.FileName</small>
+                        <small class="text-muted">@FormatSize(photo.SizeBytes)</small>
+                        <span class="badge @(photo.IsSynced ? "bg-success" : "bg-warning") float-end">
+                            @(photo.IsSynced ? "✓" : "⏳")
+                        </span>
+                    </div>
+                    <div class="card-footer p-1">
+                        <button class="btn btn-sm btn-outline-danger w-100" @onclick="() => DeletePhoto(photo.Id)">
+                            Remove
+                        </button>
+                    </div>
+                </div>
+            </div>
+        }
+    </div>
+}
+else
+{
+    <p class="text-muted">No photos captured yet.</p>
+}
+
+@code {
+    [SupplyParameterFromQuery] public string? entityId { get; set; }
+
+    private List<BlobReference> cachedPhotos = [];
+    private bool isUploading;
+    private int uploadProgress;
+    private string? uploadMessage;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadPhotos();
+    }
+
+    private async Task LoadPhotos()
+    {
+        if (!string.IsNullOrEmpty(entityId))
+        {
+            cachedPhotos = (await IndexedDb.GetBlobsByEntityAsync(entityId))
+                .Where(b => b.BlobType == "Photo").ToList();
+        }
+    }
+
+    private async Task HandlePhotoSelected(InputFileChangeEventArgs e)
+    {
+        isUploading = true;
+        uploadMessage = null;
+        var files = e.GetMultipleFiles(10);
+        int processed = 0;
+
+        foreach (var file in files)
+        {
+            var maxSize = 20 * 1024 * 1024; // 20 MB
+            using var stream = file.OpenReadStream(maxSize);
+            using var ms = new System.IO.MemoryStream();
+            await stream.CopyToAsync(ms);
+            var data = ms.ToArray();
+
+            var targetEntity = entityId ?? "unassigned";
+            var blob = await BlobCache.CacheBlobAsync(
+                targetEntity, file.Name, file.ContentType, "Photo", data);
+
+            await SyncService.QueueOperationAsync(new OfflineOperation
+            {
+                OperationType = OperationType.UploadPhoto,
+                EntityType = "Blob",
+                EntityId = targetEntity,
+                PayloadJson = System.Text.Json.JsonSerializer.Serialize(new { blobId = blob.Id, fileName = file.Name }),
+                BlobReferenceIds = [blob.Id]
+            });
+
+            processed++;
+            uploadProgress = (int)((double)processed / files.Count * 100);
+            StateHasChanged();
+        }
+
+        isUploading = false;
+        uploadMessage = $"{processed} photo(s) saved locally. Will sync when online.";
+        await LoadPhotos();
+    }
+
+    private async Task DeletePhoto(string id)
+    {
+        await BlobCache.RemoveCachedBlobAsync(id);
+        await LoadPhotos();
+    }
+
+    private string FormatSize(long bytes)
+    {
+        if (bytes < 1024) return $"{bytes} B";
+        if (bytes < 1024 * 1024) return $"{bytes / 1024.0:F1} KB";
+        return $"{bytes / (1024.0 * 1024.0):F1} MB";
+    }
+}

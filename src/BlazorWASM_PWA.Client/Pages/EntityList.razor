@@ -1,0 +1,93 @@
+@page "/entities"
+
+@inject IIndexedDbService IndexedDb
+@inject NavigationManager Navigation
+
+<h2>Entity Records</h2>
+
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <div>
+        <select class="form-select d-inline-block w-auto" @bind="selectedType">
+            <option value="">All Types</option>
+            @foreach (var t in entityTypes)
+            {
+                <option value="@t">@t</option>
+            }
+        </select>
+        <button class="btn btn-sm btn-outline-secondary ms-2" @onclick="LoadEntities">Filter</button>
+    </div>
+    <a href="entity/new" class="btn btn-primary">➕ New Record</a>
+</div>
+
+@if (entities is null)
+{
+    <p>Loading...</p>
+}
+else if (!entities.Any())
+{
+    <div class="alert alert-info">No records found. Create your first record to get started.</div>
+}
+else
+{
+    <div class="table-responsive">
+        <table class="table table-striped">
+            <thead>
+                <tr>
+                    <th>Name</th>
+                    <th>Type</th>
+                    <th>Updated</th>
+                    <th>Synced</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var entity in entities)
+                {
+                    <tr>
+                        <td>@entity.Name</td>
+                        <td><span class="badge bg-secondary">@entity.EntityType</span></td>
+                        <td>@entity.UpdatedAt.LocalDateTime.ToString("g")</td>
+                        <td>
+                            @if (entity.IsSynced)
+                            {
+                                <span class="badge bg-success">✓</span>
+                            }
+                            else
+                            {
+                                <span class="badge bg-warning">Pending</span>
+                            }
+                        </td>
+                        <td>
+                            <a href="entity/@entity.Id" class="btn btn-sm btn-outline-primary">Edit</a>
+                            <button class="btn btn-sm btn-outline-danger" @onclick="() => DeleteEntity(entity.Id)">Delete</button>
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+}
+
+@code {
+    private List<EntityRecord>? entities;
+    private string selectedType = "";
+    private List<string> entityTypes = ["Property", "Inspection", "Violation", "Contact"];
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadEntities();
+    }
+
+    private async Task LoadEntities()
+    {
+        var type = string.IsNullOrEmpty(selectedType) ? null : selectedType;
+        entities = await IndexedDb.GetAllEntitiesAsync(type);
+        entities = entities.Where(e => !e.IsDeleted).OrderByDescending(e => e.UpdatedAt).ToList();
+    }
+
+    private async Task DeleteEntity(string id)
+    {
+        await IndexedDb.DeleteEntityAsync(id);
+        await LoadEntities();
+    }
+}

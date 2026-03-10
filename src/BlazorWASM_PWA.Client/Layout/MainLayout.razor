@@ -1,0 +1,29 @@
+﻿@inherits LayoutComponentBase
+
+@inject IConnectivityService ConnectivityService
+@inject ISyncService SyncService
+
+<div class="page">
+    <div class="sidebar">
+        <NavMenu />
+    </div>
+
+    <main>
+        <div class="top-row px-4 d-flex align-items-center justify-content-between">
+            <ConnectivityBanner />
+            <SyncIndicator />
+        </div>
+
+        <article class="content px-4">
+            @Body
+        </article>
+    </main>
+</div>
+
+@code {
+    protected override async Task OnInitializedAsync()
+    {
+        await ConnectivityService.InitializeAsync();
+        await SyncService.InitializeAsync();
+    }
+}

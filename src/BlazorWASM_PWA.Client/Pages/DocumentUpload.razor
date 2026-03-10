@@ -1,0 +1,140 @@
+@page "/documents"
+
+@inject IIndexedDbService IndexedDb
+@inject ISyncService SyncService
+@inject BlobCacheService BlobCache
+
+<h2>📄 Document Upload</h2>
+
+@if (!string.IsNullOrEmpty(entityId))
+{
+    <div class="alert alert-info">Uploading documents for entity: @entityId</div>
+}
+
+<div class="mb-3">
+    <label class="form-label">Select Documents</label>
+    <InputFile OnChange="HandleDocumentSelected"
+               accept=".pdf,.doc,.docx,.xls,.xlsx,.txt,.csv,.rtf"
+               class="form-control" multiple />
+    <small class="text-muted">Supported: PDF, Word, Excel, Text, CSV (max 50 MB each)</small>
+</div>
+
+@if (isUploading)
+{
+    <div class="progress mb-3">
+        <div class="progress-bar progress-bar-striped progress-bar-animated" style="width: @uploadProgress%">
+            @uploadProgress%
+        </div>
+    </div>
+}
+
+@if (uploadMessage is not null)
+{
+    <div class="alert alert-success">@uploadMessage</div>
+}
+
+<h4 class="mt-4">Cached Documents</h4>
+
+@if (cachedDocs.Any())
+{
+    <div class="list-group">
+        @foreach (var doc in cachedDocs)
+        {
+            <div class="list-group-item d-flex justify-content-between align-items-center">
+                <div>
+                    <strong>@doc.FileName</strong>
+                    <br />
+                    <small class="text-muted">
+                        @doc.ContentType · @FormatSize(doc.SizeBytes) · @doc.CreatedAt.LocalDateTime.ToString("g")
+                    </small>
+                </div>
+                <div class="d-flex align-items-center gap-2">
+                    <span class="badge @(doc.IsSynced ? "bg-success" : "bg-warning")">
+                        @(doc.IsSynced ? "Synced" : "Pending")
+                    </span>
+                    <button class="btn btn-sm btn-outline-danger" @onclick="() => DeleteDocument(doc.Id)">
+                        Remove
+                    </button>
+                </div>
+            </div>
+        }
+    </div>
+}
+else
+{
+    <p class="text-muted">No documents uploaded yet.</p>
+}
+
+@code {
+    [SupplyParameterFromQuery] public string? entityId { get; set; }
+
+    private List<BlobReference> cachedDocs = [];
+    private bool isUploading;
+    private int uploadProgress;
+    private string? uploadMessage;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadDocuments();
+    }
+
+    private async Task LoadDocuments()
+    {
+        if (!string.IsNullOrEmpty(entityId))
+        {
+            cachedDocs = (await IndexedDb.GetBlobsByEntityAsync(entityId))
+                .Where(b => b.BlobType == "Document").ToList();
+        }
+    }
+
+    private async Task HandleDocumentSelected(InputFileChangeEventArgs e)
+    {
+        isUploading = true;
+        uploadMessage = null;
+        var files = e.GetMultipleFiles(10);
+        int processed = 0;
+
+        foreach (var file in files)
+        {
+            var maxSize = 50 * 1024 * 1024; // 50 MB
+            using var stream = file.OpenReadStream(maxSize);
+            using var ms = new System.IO.MemoryStream();
+            await stream.CopyToAsync(ms);
+            var data = ms.ToArray();
+
+            var targetEntity = entityId ?? "unassigned";
+            var blob = await BlobCache.CacheBlobAsync(
+                targetEntity, file.Name, file.ContentType, "Document", data);
+
+            await SyncService.QueueOperationAsync(new OfflineOperation
+            {
+                OperationType = OperationType.UploadDocument,
+                EntityType = "Blob",
+                EntityId = targetEntity,
+                PayloadJson = System.Text.Json.JsonSerializer.Serialize(new { blobId = blob.Id, fileName = file.Name }),
+                BlobReferenceIds = [blob.Id]
+            });
+
+            processed++;
+            uploadProgress = (int)((double)processed / files.Count * 100);
+            StateHasChanged();
+        }
+
+        isUploading = false;
+        uploadMessage = $"{processed} document(s) saved locally. Will sync when online.";
+        await LoadDocuments();
+    }
+
+    private async Task DeleteDocument(string id)
+    {
+        await BlobCache.RemoveCachedBlobAsync(id);
+        await LoadDocuments();
+    }
+
+    private string FormatSize(long bytes)
+    {
+        if (bytes < 1024) return $"{bytes} B";
+        if (bytes < 1024 * 1024) return $"{bytes / 1024.0:F1} KB";
+        return $"{bytes / (1024.0 * 1024.0):F1} MB";
+    }
+}

@@ -1,0 +1,42 @@
+# .NET
+bin/
+obj/
+*.user
+*.userosscache
+*.suo
+*.sln.docstates
+.vs/
+*.nupkg
+*.snupkg
+
+# Build outputs
+output/
+api_output/
+publish/
+
+# Node.js
+node_modules/
+
+# Azure Functions
+local.settings.json
+
+# IDE files
+.idea/
+.vscode/settings.json
+.vscode/launch.json
+.vscode/tasks.json
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+Desktop.ini
+ehthumbs.db
+
+# User-specific files
+*.rsuser
+*.user
+*.userosscache
+*.userprefs
