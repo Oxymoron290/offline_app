@@ -2,6 +2,7 @@ using System.Text.Json;
 using BlazorHybrid.App.Data.Models;
 using BlazorHybrid.App.Data.Repositories;
 using BlazorHybrid.App.Services.Api;
+using BlazorHybrid.App.Services.Notifications;
 using BlazorHybrid.Shared.DTOs;
 using BlazorHybrid.Shared.Enums;
 using Microsoft.Extensions.Logging;
@@ -12,6 +13,7 @@ public class SyncService : ISyncService
 {
     private readonly ISyncOperationRepository _syncRepo;
     private readonly IApiClient _apiClient;
+    private readonly INotificationService _notificationService;
     private readonly ILogger<SyncService> _logger;
     private const int MaxRetries = 5;
 
@@ -20,10 +22,12 @@ public class SyncService : ISyncService
     public SyncService(
         ISyncOperationRepository syncRepo,
         IApiClient apiClient,
+        INotificationService notificationService,
         ILogger<SyncService> logger)
     {
         _syncRepo = syncRepo;
         _apiClient = apiClient;
+        _notificationService = notificationService;
         _logger = logger;
     }
 
@@ -90,6 +94,13 @@ public class SyncService : ISyncService
                     op.Status = op.RetryCount >= MaxRetries ? "Failed" : "Pending";
                     await _syncRepo.UpdateAsync(op);
                     failed++;
+
+                    if (op.Status == "Failed")
+                    {
+                        _notificationService.Notify(
+                            $"Sync failed: {op.OperationType} {op.EntityType} — {ex.Message}",
+                            NotificationLevel.Error);
+                    }
                 }
             }
 
@@ -105,6 +116,9 @@ public class SyncService : ISyncService
                 {
                     op.Status = "Completed";
                     completed++;
+                    _notificationService.Notify(
+                        $"Synced: {op.OperationType} {op.EntityType}",
+                        NotificationLevel.Success);
                 }
                 else
                 {
@@ -112,6 +126,13 @@ public class SyncService : ISyncService
                     op.LastError = opResult.ErrorMessage;
                     op.Status = op.RetryCount >= MaxRetries ? "Failed" : "Pending";
                     failed++;
+
+                    if (op.Status == "Failed")
+                    {
+                        _notificationService.Notify(
+                            $"Sync failed: {op.OperationType} {op.EntityType} — {opResult.ErrorMessage}",
+                            NotificationLevel.Error);
+                    }
                 }
 
                 await _syncRepo.UpdateAsync(op);

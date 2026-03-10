@@ -4,6 +4,7 @@ using BlazorHybrid.App.Services.Api;
 using BlazorHybrid.App.Services.Auth;
 using BlazorHybrid.App.Services.Connectivity;
 using BlazorHybrid.App.Services.Media;
+using BlazorHybrid.App.Services.Notifications;
 using BlazorHybrid.App.Services.Sync;
 using Microsoft.Extensions.Logging;
 using Microsoft.Identity.Client;
@@ -63,6 +64,7 @@ public static class MauiProgram
         // Services
         builder.Services.AddSingleton<IConnectivityService, ConnectivityService>();
         builder.Services.AddSingleton<IMediaService, MediaService>();
+        builder.Services.AddSingleton<INotificationService, NotificationService>();
         builder.Services.AddSingleton<ISyncService, SyncService>();
         builder.Services.AddSingleton<BackgroundSyncWorker>();
 
